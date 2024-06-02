@@ -1,0 +1,183 @@
+# Exploring the limits of Proto reflection in Go
+
+James Lewis
+4 June 2024
+james.lewis2@anz.com
+
+## Protocol Buffers are language-neutral, platform-neutral extensible mechanisms for serializing structured data.
+
+: Protocol Buffers (often abbreviated as Protobuf) are Google's language-neutral, platform-neutral, extensible mechanism for serializing structured data.
+
+## Protocol Buffers (Continued)
+proto definition.
+
+.code example.proto
+
+generating language specific bindings for our favourite language.
+```
+protoc example.proto --go_out=out
+```
+
+see more at: [https://protobuf.dev/reference/go/go-generated/](https://protobuf.dev/reference/go/go-generated/)
+
+: Protobuf is used to define message types in a .proto file, like the Person message type in your example.proto file. These message types can contain simple data types, complex nested types, and a variety of field types. The Protobuf compiler (protoc) is then used to generate data access classes in various languages.
+
+## Protocol Buffers (Continued)
+generated go code
+```go
+ ...
+
+type Person struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Name  string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Id    int32  `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	Email string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+}
+
+ ...
+```
+
+## Protocol Buffers (Continued)
+
+.code cmd/example/main.go
+
+```
+Encoded Person: [10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]
+```
+
+: gRPC is a high-performance, open-source universal RPC (Remote Procedure Call) framework. In gRPC, a client application can directly call methods on a server application on a different machine as if it were a local object, making it easier for you to create distributed applications and services.
+
+##
+
+.iframe https://en.wikipedia.org/wiki/IP_over_Avian_Carriers 1000 1000
+
+##
+
+.iframe https://grpc.io/docs/what-is-grpc/introduction/#overview 1000 1000
+
+##
+
+.background assets/grpc.png
+.caption diagram from [[https://grpc.io]]
+## Wire Format
+```
+personMessage := person.Person{
+    Name:  "James",
+    Id:    1,
+    Email: "james.lewis2@anz.com",
+}
+data, err := proto.Marshal(&personMessage)
+```
+Marshal returns the wire-format encoding of personMessage.
+
+TODO: breakdown what the byte data actually represents
+= `[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
+
+```
+$ protoscope person.bytes
+1: {"James"}
+2: 1
+3: {"james.lewis2@anz.com"}
+```
+Protoscope is a simple language for describing snippets of the low-level wire format.
+
+: Explains how Protocol Buffers encodes data to files or to the wire.
+
+: Protoscope’s syntax consists of a sequence of tokens that each encode down to a specific byte sequence.
+
+## Proto wire format vs JSON
+wire: `[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
+- 31 Bytes
+
+JSON: `[123 34 110 97 109 101 34 58 34 74 97 109 101 115 34 44 34 105 100 34 58 49 44 34 101 109 97 105 108 34 58 34 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109 34 125]`
+- 54 bytes
+
+TODO: unpack efficiency gains more
+Read more about the cool efficiency gains of wire format [https://protobuf.dev/programming-guides/encoding/](https://protobuf.dev/programming-guides/encoding/)
+
+: When to use JSON
+: You need or want data to be human readable
+
+: Pros of ProtoBuf
+: Relatively smaller size
+: Guarantees type-safety
+: Prevents schema-violations
+: Gives you simple accessors
+: Fast serialization/deserialization
+: Backward compatibility
+
+## Decoding wire format data
+```
+$ protoscope person.bytes
+1: {"James"}
+2: 1
+3: {"james.lewis2@anz.com"}
+```
+```
+import "go-meetup-talk/out/example.com/project/protos/person"
+ ...
+var personMessage person.Person
+
+file, err := os.Open(FileName) // open file
+ ...
+byteData, err := io.ReadAll(file) // Read file
+ ...
+err = proto.Unmarshal(byteData, &personMessage) // Unmarshal back into a Person message
+```
+
+.image assets/personMessage.png _ 500
+
+## The End
+James Lewis
+
+4 June 2024
+
+[james.lewis2@anz.com](james.lewis2@anz.com)
+
+## But wait there's more...
+
+### Exploring the limits of Proto reflection in Go
+
+## Reflection
+
+**what is it?**
+
+Reflection is the ability of a program to inspect, analyze, and manipulate its own structure and behavior at runtime. - thanks chatGPT
+
+- It allows programs to dynamically interact with types that are unknown at compile time.
+
+- Each language’s reflection model is different.
+
+- In the context of Go more generally, reflection is provided by the reflect package.
+- In the context of protobufs in Go, reflection is provided by the protoreflect package.
+
+See [laws of reflection](https://go.dev/blog/laws-of-reflection) for more info.
+
+: laws of reflection by Rob Pike
+
+## Refection vs polymorphism
+ - Reflection, allows a program to inspect and manipulate its own structure and behavior at runtime.
+ - Polymorphism, achieved through interfaces, allows values of different data types to be handled using a uniform interface.
+
+ While both allow for more flexible and reusable code, reflection deals with runtime type analysis and manipulation, and polymorphism enables handling different types uniformly at compile time.
+
+## Reflection Example
+
+.play cmd/reflection/main.go
+
+## Reflection (continued)
+
+
+## Reflection (continued)
+why do we care?
+```
+func Unmarshal(b []byte, m Message) error {
+	_, err := UnmarshalOptions{RecursionLimit: protowire.DefaultRecursionLimit}
+	    .unmarshal(b, m.ProtoReflect())
+	return err
+}
+```
+source: [github.com/golang/protobuf](https://github.com/golang/protobuf/blob/75de7c059e36b64f01d0dd234ff2fff404ec3374/proto/buffer.go#L264)

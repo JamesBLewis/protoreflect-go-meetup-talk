@@ -1,0 +1,10 @@
+syntax = "proto3"; // version of the proto spec
+
+option go_package = "example.com/project/protos/person"; // an annotation for protoc
+
+// our actual data structure
+message Person {
+  string name = 1;
+  int32 id = 2;
+  string email = 3;
+}
