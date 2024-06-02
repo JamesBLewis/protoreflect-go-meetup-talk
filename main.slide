@@ -42,7 +42,7 @@ type Person struct {
 
 ## Protocol Buffers (Continued)
 
-.code cmd/example/main.go
+.code examples/example/main.go
 
 ```
 Encoded Person: [10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]
@@ -88,7 +88,7 @@ Protoscope is a simple language for describing snippets of the low-level wire fo
 
 : Protoscope’s syntax consists of a sequence of tokens that each encode down to a specific byte sequence.
 
-## Proto wire format vs JSON
+## Proto Wire Format vs JSON
 wire: `[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
 - 31 Bytes
 
@@ -109,7 +109,7 @@ Read more about the cool efficiency gains of wire format [https://protobuf.dev/p
 : Fast serialization/deserialization
 : Backward compatibility
 
-## Decoding wire format data
+## Decoding Wire Format Data
 ```
 $ protoscope person.bytes
 1: {"James"}
@@ -147,6 +147,8 @@ James Lewis
 
 Reflection is the ability of a program to inspect, analyze, and manipulate its own structure and behavior at runtime. - thanks chatGPT
 
+At the basic level, reflection is just a mechanism to examine the type and value pair stored inside an interface variable. - thanks Rob Pike
+
 - It allows programs to dynamically interact with types that are unknown at compile time.
 
 - Each language’s reflection model is different.
@@ -154,25 +156,26 @@ Reflection is the ability of a program to inspect, analyze, and manipulate its o
 - In the context of Go more generally, reflection is provided by the reflect package.
 - In the context of protobufs in Go, reflection is provided by the protoreflect package.
 
-See [laws of reflection](https://go.dev/blog/laws-of-reflection) for more info.
-
 : laws of reflection by Rob Pike
 
-## Refection vs polymorphism
+## Refection vs Polymorphism
  - Reflection, allows a program to inspect and manipulate its own structure and behavior at runtime.
  - Polymorphism, achieved through interfaces, allows values of different data types to be handled using a uniform interface.
 
  While both allow for more flexible and reusable code, reflection deals with runtime type analysis and manipulation, and polymorphism enables handling different types uniformly at compile time.
 
-## Reflection Example
-
-.play cmd/reflection/main.go
-
-## Reflection (continued)
-
-
 ## Reflection (continued)
 why do we care?
+- What happens when you want to Unmarshal a proto but you don't know the type at compile time?
+
+.image assets/serviceDiagram.svg _ 450
+
+## Problem Solve
+What would google do?
+```
+err = proto.Unmarshal(byteData, &personMessage) // Unmarshal back into a Person message
+```
+
 ```
 func Unmarshal(b []byte, m Message) error {
 	_, err := UnmarshalOptions{RecursionLimit: protowire.DefaultRecursionLimit}
@@ -180,4 +183,77 @@ func Unmarshal(b []byte, m Message) error {
 	return err
 }
 ```
+
 source: [github.com/golang/protobuf](https://github.com/golang/protobuf/blob/75de7c059e36b64f01d0dd234ff2fff404ec3374/proto/buffer.go#L264)
+
+
+## Options
+
+No way to solve this problem without reflection.
+
+1. Use a type switch
+
+.code examples/switch/main.go
+
+## Options (continued)
+
+2. Dynamically determine the message type
+
+.code examples/dynamic/main.go
+
+## Laws of Reflection
+1. Reflection goes from interface value to reflection object.
+
+.play examples/reflection/main.go
+
+## Laws of Reflection (Continued)
+2. Reflection goes from reflection object to interface value.
+
+## Laws of Reflection (Continued)
+3. To modify a reflection object, the value must be settable.
+
+
+## Types In Go
+
+See [laws of reflection](https://go.dev/blog/laws-of-reflection)  by Rob Pike for more info.
+
+```
+type MyInt int
+
+var i int
+var j MyInt
+```
+- Go is statically typed. Every variable has a static type, that is, exactly one type known and fixed at compile time.
+- The variables i and j have distinct static types and, although they have the same underlying type
+
+## Types (Continued)
+- One important category of type is interface types, which represent fixed sets of methods.
+- An interface variable can store any concrete (non-interface) value as long as that value implements the interface’s methods.
+```
+// Reader is the interface that wraps the basic Read method.
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+// Writer is the interface that wraps the basic Write method.
+type Writer interface {
+    Write(p []byte) (n int, err error)
+}
+```
+- Any type that implements a Read (or Write) method with this signature is said to implement io.Reader (or io.Writer).
+
+## Types (Continued)
+```
+var r io.Reader
+tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+if err != nil {
+    return nil, err
+}
+r = tty
+```
+Notice that the type *os.File implements methods other than Read even though the interface value provides access only to the Read method.
+```
+var w io.Writer
+w = r.(io.Writer)
+```
+The expression in this assignment is a type assertion; what it asserts is that the item inside r also implements io.Writer, and so we can assign it to w.
