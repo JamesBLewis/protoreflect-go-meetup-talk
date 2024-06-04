@@ -4,7 +4,7 @@ James Lewis
 4 June 2024
 james.lewis2@anz.com
 
-## Protocol Buffers are language-neutral, platform-neutral extensible mechanisms for serializing structured data.
+## Thanks Liam for already explaining protos
 
 : Protocol Buffers (often abbreviated as Protobuf) are Google's language-neutral, platform-neutral, extensible mechanism for serializing structured data.
 
@@ -42,7 +42,7 @@ type Person struct {
 
 ## Protocol Buffers (Continued)
 
-.code examples/example/main.go
+.code examples/encode/main.go
 
 ```
 Encoded Person: [10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]
@@ -54,14 +54,6 @@ Encoded Person: [10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101
 
 .iframe https://en.wikipedia.org/wiki/IP_over_Avian_Carriers 1000 1000
 
-##
-
-.iframe https://grpc.io/docs/what-is-grpc/introduction/#overview 1000 1000
-
-##
-
-.background assets/grpc.png
-.caption diagram from [[https://grpc.io]]
 ## Wire Format
 ```
 personMessage := person.Person{
@@ -88,28 +80,7 @@ Protoscope is a simple language for describing snippets of the low-level wire fo
 
 : Protoscope’s syntax consists of a sequence of tokens that each encode down to a specific byte sequence.
 
-## Proto Wire Format vs JSON
-wire: `[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
-- 31 Bytes
-
-JSON: `[123 34 110 97 109 101 34 58 34 74 97 109 101 115 34 44 34 105 100 34 58 49 44 34 101 109 97 105 108 34 58 34 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109 34 125]`
-- 54 bytes
-
-TODO: unpack efficiency gains more
-Read more about the cool efficiency gains of wire format [https://protobuf.dev/programming-guides/encoding/](https://protobuf.dev/programming-guides/encoding/)
-
-: When to use JSON
-: You need or want data to be human readable
-
-: Pros of ProtoBuf
-: Relatively smaller size
-: Guarantees type-safety
-: Prevents schema-violations
-: Gives you simple accessors
-: Fast serialization/deserialization
-: Backward compatibility
-
-## Decoding Wire Format Data
+## Decoding Wire Format (continued)
 ```
 $ protoscope person.bytes
 1: {"James"}
@@ -158,20 +129,43 @@ At the basic level, reflection is just a mechanism to examine the type and value
 
 : laws of reflection by Rob Pike
 
-## Refection vs Polymorphism
- - Reflection, allows a program to inspect and manipulate its own structure and behavior at runtime.
- - Polymorphism, achieved through interfaces, allows values of different data types to be handled using a uniform interface.
+## Reflection (Continued)
+### "type and value pair stored inside an interface variable"
+- we know how to declare and reference and interface
+- what is the type and value pair?
+- demo time
 
- While both allow for more flexible and reusable code, reflection deals with runtime type analysis and manipulation, and polymorphism enables handling different types uniformly at compile time.
+## Reflection - ValueOf
+```
+ // ValueOf returns a new Value initialized to the concrete value
+ // stored in the interface i. ValueOf(nil) returns the zero Value.
+func ValueOf(i any) Value {
+	if i == nil {
+		return Value{}
+	}
+	return unpackEface(i)
+}
+```
+A concrete value refers to an instance of a concrete type. A concrete type is a type that can be directly instantiated or created.
+- Circle Value: {5}
+- Rectangle Value: {3 4}
 
-## Reflection (continued)
-why do we care?
-- What happens when you want to Unmarshal a proto but you don't know the type at compile time?
+## Reflection - TypeOf
+```
+ // TypeOf returns the reflection [Type] that represents the dynamic type of i.
+ // If i is a nil interface value, TypeOf returns nil.
+func TypeOf(i any) Type {
+	eface := *(*emptyInterface)(unsafe.Pointer(&i))
+	// Noescape so this doesn't make i to escape. See the comment
+	// at Value.typ for why this is safe.
+	return toType((*abi.Type)(noescape(unsafe.Pointer(eface.typ))))
+}
+```
+A dynamic type refers to the type that is bound to a variable at runtime. This is in contrast to the static type, which is the type that is bound to a variable at compile time.
+- Type: main.Circle
+- Type: main.Rectangle,
 
-.image assets/serviceDiagram.svg _ 450
-
-## Problem Solve
-What would google do?
+## Unmarshalling Example
 ```
 err = proto.Unmarshal(byteData, &personMessage) // Unmarshal back into a Person message
 ```
@@ -183,77 +177,193 @@ func Unmarshal(b []byte, m Message) error {
 	return err
 }
 ```
-
 source: [github.com/golang/protobuf](https://github.com/golang/protobuf/blob/75de7c059e36b64f01d0dd234ff2fff404ec3374/proto/buffer.go#L264)
 
+## Unmarshalling Example (Continued)
+```
+ ...
+type Person struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
 
-## Options
+	Name  string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Id    int32  `protobuf:"varint,2,opt,name=id,proto3" json:"id,omitempty"`
+	Email string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+}
+ ...
+func (x *Person) ProtoReflect() protoreflect.Message {
+	mi := &file_example_proto_msgTypes[0] // get message info hardcoded in generated go code
+	...
+	return mi.MessageOf(x)
+}
+ ...
+```
 
-No way to solve this problem without reflection.
+source: generated example.pb.go
 
-1. Use a type switch
+## Unmarshalling Example (Continued)
+```
+func (mi *MessageInfo) MessageOf(m interface{}) protoreflect.Message {
+    // check the type of our function argument matches the type mi was created for
+	if reflect.TypeOf(m) != mi.GoReflectType {
+		panic(fmt.Sprintf("type mismatch: got %T, want %v", m, mi.GoReflectType))
+	}
+	p := pointerOfIface(m) // create a pointer which allows access to some utility functions
+	if p.IsNil() {
+		return mi.nilMessage.Init(mi)
+	}
+	// return a wrapper type which implements the protoreflect.Message interface
+	// it contains a pointer to the message data and a pointer to the MessageInfo
+	return &messageReflectWrapper{p, mi}
+}
+```
+source: [google.golang.org/protobuf/internal/impl](https://pkg.go.dev/google.golang.org/protobuf/internal/impl@v1.34.1#MessageInfo.MessageOf)
 
-.code examples/switch/main.go
+## Unmarshalling Example (Continued)
+from protoreflect.Message docs:
 
-## Options (continued)
+"Message is a reflective interface for a concrete message value, encapsulating both type and value information for the message."
 
-2. Dynamically determine the message type
+- concrete i.e. non-interface
+- A reflective interface in programming, particularly in the context of Go and Protocol Buffers (Protobuf), is an interface that provides methods to inspect and manipulate the type and value of a certain object at runtime. This is particularly useful when you need to work with data whose types are not known at compile time. - ChatGPT
 
-.code examples/dynamic/main.go
+## Unmarshalling Example (Continued)
+
+```
+func (mi *MessageInfo) unmarshalPointer(b []byte, p pointer, groupTag protowire.Number,
+    opts unmarshalOptions) (out unmarshalOutput, err error) {
+  ...
+}
+```
+
+please read: [protobuf.dev/programming-guides/encoding/](https://protobuf.dev/programming-guides/encoding/)
+
+1. It parses the tag of each text field from the slice of bytes. The tag holds the **field number** and **wire type**.
+2. It looks up the field descriptor for the **field number** in the MessageInfo. If it finds a descriptor, it calls the unmarshal function for the field, passing the remaining bytes.
+3. If it didn't find a field descriptor, it checks if the field could be an extension and if so will unmarshal the extension field.
+
+## Unmarshalling Example - Decoding Wire Format
+
+`[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
+
+- When a message is encoded, each key-value pair is turned into a record consisting of the field number, a wire type and a payload.
+
+- 10: This is a tag which indicates the **field number** and **wire type**. The number 10 is 00001 010 in binary. The last three bits (010) represent the wire type (2 in this case, which stands for "Length-delimited"). The remaining bits (00001) represent the field number (1 in this case). So, this tag represents field number 1 of type "Length-delimited".
+- 5: This is the length of the following field value. It indicates that the next 5 bytes represent the value of the field.
+- 74 97 109 101 115: These bytes represent the value of the field. In this case, they are ASCII values for the string "James".
+
+## Real World Example
+
+Some hypothetical events:
+- Locking/Unlocking Cards
+- People Buying things
+
+.image assets/anz-plus-top.png _ 1000
+
+## Real World Example (continued)
+
+What happens when you want to Unmarshal a proto but you don't know the type at compile time?
+
+.image assets/serviceDiagram2.svg _ 450
+
+## Real World Example (continued)
+What we have:
+- A single repo with all our API definitions & protos.
+- A version of the above repo will go bindings with complete file descriptors for the above.
+- A pipeline of events.
+- ?
+
+`[10 5 74 97 109 101 115 16 1 26 20 106 97 109 101 115 46 108 101 119 105 115 50 64 97 110 122 46 99 111 109]`
+```
+1: {"James"}
+2: 1
+3: {"james.lewis2@anz.com"}
+```
+
+##
+
+.iframe https://cloudevents.io/ 1000 980
+
+## CloudEvents
+source: [github.com/cloudevents/sdk-go/v2/event](https://pkg.go.dev/github.com/cloudevents/sdk-go/v2/event@v2.15.2#Event)
+```
+// Event represents the canonical representation of a CloudEvent.
+type Event struct {
+	Context     EventContext
+	DataEncoded []byte
+	// DataBase64 indicates if the event, when serialized, represents
+	// the data field using the base64 encoding.
+	// In v0.3, this field is superseded by DataContentEncoding
+	DataBase64  bool
+	FieldErrors map[string]error
+}
+```
+```
+DataEncoded []byte
+```
+```
+EventContext struct {
+    ...
+    // DataSchema is a link to the schema that the data adheres to.
+    DataSchema string `json:"dataschema"`
+    ...
+}
+```
+## Demo Time
+
+## The Limits of Reflection
+Let's ask our friend Rob Pike.
+
+.iframe https://en.wikipedia.org/wiki/Rob_Pike 1000 900
 
 ## Laws of Reflection
 1. Reflection goes from interface value to reflection object.
 
-.play examples/reflection/main.go
+It turns out we're already very familar with this law.
+- At the basic level, reflection is just a mechanism to examine the type and value pair stored inside an interface variable.
+- there are two types we need to know about in package reflect: Type and Value.
+- Both reflect.Type and reflect.Value have lots of methods to let us examine and manipulate them.
+- Both Type and Value have a Kind method that returns a constant indicating what sort of item is stored: Uint, Float64, Slice, and so on.
 
 ## Laws of Reflection (Continued)
 2. Reflection goes from reflection object to interface value.
 
+Like physical reflection, reflection in Go generates its own inverse.
+- Given a reflect.Value we can recover an interface value using the Interface method;
+
+.play examples/law2/main.go
+
 ## Laws of Reflection (Continued)
 3. To modify a reflection object, the value must be settable.
 
+```
+var x float64 = 3.4
+v := reflect.ValueOf(x)
+v.SetFloat(7.1) // Error: will panic.
+```
+The CanSet method of Value reports the settability of a Value; in our case,
+```
+var x float64 = 3.4
+v := reflect.ValueOf(x)
+fmt.Println("settability of v:", v.CanSet()) // settability of v: false
+```
 
-## Types In Go
+##  Law 3 Continued
+- Settability is like addressability, but stricter.
+- Settability is determined by whether the reflection object holds the original item.
+```
+var x float64 = 3.4
+v := reflect.ValueOf(x)
+```
+- in this example we pass a copy of x to reflect.ValueOf
+- it this were allowed to succeed, it would only update the copy of x
 
-See [laws of reflection](https://go.dev/blog/laws-of-reflection)  by Rob Pike for more info.
+This would be confusing.
 
-```
-type MyInt int
+If we want to modify x by reflection, we must give the reflection library a pointer to the value we want to modify.
 
-var i int
-var j MyInt
-```
-- Go is statically typed. Every variable has a static type, that is, exactly one type known and fixed at compile time.
-- The variables i and j have distinct static types and, although they have the same underlying type
+## Law 3 Continued
 
-## Types (Continued)
-- One important category of type is interface types, which represent fixed sets of methods.
-- An interface variable can store any concrete (non-interface) value as long as that value implements the interface’s methods.
-```
-// Reader is the interface that wraps the basic Read method.
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
+.play examples/law3/main.go
 
-// Writer is the interface that wraps the basic Write method.
-type Writer interface {
-    Write(p []byte) (n int, err error)
-}
-```
-- Any type that implements a Read (or Write) method with this signature is said to implement io.Reader (or io.Writer).
-
-## Types (Continued)
-```
-var r io.Reader
-tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-if err != nil {
-    return nil, err
-}
-r = tty
-```
-Notice that the type *os.File implements methods other than Read even though the interface value provides access only to the Read method.
-```
-var w io.Writer
-w = r.(io.Writer)
-```
-The expression in this assignment is a type assertion; what it asserts is that the item inside r also implements io.Writer, and so we can assign it to w.

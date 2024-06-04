@@ -1,0 +1,14 @@
+syntax = "proto3"; // version of the proto spec
+
+import "cloudevent.proto";
+
+option go_package = "example.com/project/protos/person"; // an annotation for protoc
+
+// our actual data structure
+message Person {
+  option (google.events.cloud_event_type) = "com.example.person.v1.PersonCreated"; // an annotation for protoc
+
+  string name = 1;
+  int32 id = 2;
+  string email = 3;
+}
